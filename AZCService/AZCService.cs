@@ -32,6 +32,7 @@ namespace AZCService
         public int dwWaitHint;
     };
 
+
     public partial class AZCService : ServiceBase
     {
         private int eventId = 1;
@@ -41,10 +42,8 @@ namespace AZCService
         {
             InitializeComponent();
 
-            Console.WriteLine(" - AZCService - ");
-
-            string eventSourceName = "MySource";
-            string logName = "MyNewLog";
+            string eventSourceName = "AZCServiceSource";
+            string logName = "AZCServiceLog";
 
             if (args.Length > 0)
             {
