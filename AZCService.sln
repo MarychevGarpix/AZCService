@@ -5,7 +5,7 @@ VisualStudioVersion = 17.9.34728.123
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AZCService", "AZCService\AZCService.csproj", "{31F5BF40-A172-4545-B2CB-1F8DB4606F80}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ConsoleAZCService", "ConsoleAZCService\ConsoleAZCService.csproj", "{DEB50D3A-41AE-4524-A794-CFF7D36177A7}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "ConsoleAZCService", "ConsoleAZCService\ConsoleAZCService.csproj", "{DEB50D3A-41AE-4524-A794-CFF7D36177A7}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
