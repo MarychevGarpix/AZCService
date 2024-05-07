@@ -1,6 +1,9 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Data;
 using System.Data.SqlClient;
+using System.Diagnostics;
+using System.Net;
 using System.Net.Http.Headers;
 using System.Runtime.CompilerServices;
 using System.ServiceProcess;
@@ -12,32 +15,47 @@ using FirebirdSql.Data.FirebirdClient;
 namespace ConsoleAZCService
 {
 
+    public class PauseAndExecuter
+    {
+        public async Task Execute(Action action, int timeoutInMilliseconds)
+        {
+            await Task.Delay(timeoutInMilliseconds);
+            action();
+        }
+    }
+
     internal class Program
     {
 
         // Simple ESTB-back to check AUTH_TOKEN 
         public static string ESTB_URL_AUTH_THOKEN = "https://httpbin.org/basic-auth/user7/passwd";   // PROD-ESTB:  /api/public/poll  - ???
 
-
         public const string AZCSericeName = "AZCService";
-
         public const string TopazOfficeUser= "SYSDBA";
         public const string TopazOfficePassword= "masterkey";
         public const string TopazOfficeDBName = "TopazOffice";
         public const string TopazOfficeDBPath = "C:\\Users\\garpix\\Downloads\\" + TopazOfficeDBName + ".FDB";
         public const string ConnectionString = "User = " + TopazOfficeUser + "; Password = " + TopazOfficePassword + "; Database = " + TopazOfficeDBPath + "; DataSource = localhost; Port = 3050; Dialect = 3; Charset = NONE; Role =; Connection lifetime = 15; Pooling = true; MinPoolSize = 0; MaxPoolSize = 50; Packet Size = 8192; ServerType = 0;";
+        
+        /// CASE SUCCESS 1: Return data via {"id": "srv_tzp_1_msg_15", "type":"update_cars", "result":"success"}
+        public static Dictionary<string, string> ESTB_SuccessResponce_Case1_update_cars = new()
+        {
+            {"id", "srv_tzp_1_msg_15"}, 
+            {"type", "update_cars" }, 
+            {"result", "success"}
+        };
+
+        public static Task<string> resultGetESTBAuthToken;
 
         public static string SqlShowAllTables() => "SELECT a.RDB$RELATION_NAME\r\nFROM RDB$RELATIONS a\r\nWHERE COALESCE(RDB$SYSTEM_FLAG, 0) = 0 AND RDB$RELATION_TYPE = 0;";
         public static string SqlSelect(string tableName) => "SELECT * FROM \""+tableName+"\";";
 
         public List<string> GetSqlResultsSql(string commandText) 
         {
-
-            FbConnection con = new FbConnection(ConnectionString);
+            FbConnection con = new (ConnectionString);
             con.Open();
 
-            if (con.State != ConnectionState.Open)
-            {
+            if (con.State != ConnectionState.Open) {
                 string message = "Fail: Connected to " + TopazOfficeDBName + " Database was fail::" + Environment.NewLine;
                 throw new Exception(message);
             }
@@ -45,7 +63,7 @@ namespace ConsoleAZCService
             List<string> result = new List<string>();
             using (var cmd = con.CreateCommand())
             {
-                cmd.CommandText = SqlShowAllTables();
+                cmd.CommandText = commandText;
 
                 using (var reader = cmd.ExecuteReader())
                 {
@@ -57,12 +75,16 @@ namespace ConsoleAZCService
             }
 
             con.Close();
+
+            // Dictionary<string, string> parameters = new Dictionary<string, string>();
+            // parameters.ForEach(kvp => cmd.Parameters.Add(dbio.CreateParameter(kvp.Key, kvp.Value)));
+
             return result;
         }
 
         public bool StartAZCService() 
         {
-            Console.WriteLine("Check: Waiting for connection " + AZCSericeName + "...");
+            Console.WriteLine("[AZCService] ... waiting for connection " + AZCSericeName + "...");
 
             ServiceController sc = new ServiceController(AZCSericeName);
             ServiceController[] scServices = ServiceController.GetServices();
@@ -74,7 +96,7 @@ namespace ConsoleAZCService
                 if (sc.Status != ServiceControllerStatus.Running) {
                     return false;
                 } else {
-                    Console.WriteLine("Success: " + AZCSericeName + " was connected");
+                    Console.WriteLine("[AZCService]: Success. " + AZCSericeName + " was connected" + Environment.NewLine + Environment.NewLine);
                     return true;
                 }
             }
@@ -82,89 +104,53 @@ namespace ConsoleAZCService
             return false;
         }
 
-        static void Main(string[] args)
+        public string PrepareBaseAuthToken64(string userName = "user7", string passwd = "passwd") /* "marychev_garpix" / "911911"; */
+        {
+            var byteToken = Encoding.ASCII.GetBytes($"{userName}:{passwd}");
+            return Convert.ToBase64String(byteToken);
+        }
+        
+        public Task<string> ApiGetESTBAuthToken(ConsoleAZCService.Program app) {
+            using HttpClient client = new();
+            client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Basic", app.PrepareBaseAuthToken64());
+            
+            var result = client.GetAsync(ESTB_URL_AUTH_THOKEN).GetAwaiter().GetResult();
+            if (HttpStatusCode.OK != result.StatusCode) throw new Exception("Authenticated was failing. Get: " + result);
+
+            return result.Content.ReadAsStringAsync();
+
+            /* Examples II
+            using (var _client = new HttpClient())
+            {
+                _client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Basic", app.PrepareBaseAuthToken64());
+                using (var responce = _client.GetAsync(ESTB_URL_AUTH_THOKEN))   // using(var resp = client.PostAsync(url, data)) {
+                    if (responce.IsCompletedSuccessfully) throw new Exception("Authenticated was failing. Get: " + responce.Result);
+                    Console.WriteLine("Succes after check auth token: " + responce.Result);
+                }
+            */
+
+        }
+
+        static void Main()
         {
             Program app = new Program();
 
             /// Connect to AC Service
-            if (!app.StartAZCService()) {
-                string message = "Fail: Connected to " + AZCSericeName + " was fail." + Environment.NewLine;
-                throw new Exception(message);
-            }
+            if (!app.StartAZCService()) throw new Exception("Fail: Connected to " + AZCSericeName + " was fail." + Environment.NewLine);
 
             /// Get SQL results to Firebird database
-            List<string> result = app.GetSqlResultsSql(SqlShowAllTables());
-            Console.WriteLine(string.Join(Environment.NewLine, result.ToArray()));
-            // Dictionary<string, string> parameters = new Dictionary<string, string>();
-            // parameters.ForEach(kvp => cmd.Parameters.Add(dbio.CreateParameter(kvp.Key, kvp.Value)));
-
+            List<string> sqlResult = app.GetSqlResultsSql(SqlSelect("ProgConfig"));
+            Console.WriteLine("[DB_TOPAZ]: SQL result = " + string.Join(Environment.NewLine, sqlResult.ToArray()));
 
             /// Send the first message to ESTB backend with Token
-            string userName = "user7";  // "marychev_garpix";
-            string passwd = "passwd";   // "911911";
-            using (var client = new HttpClient())
-            {
-                var authToken = Encoding.ASCII.GetBytes($"{userName}:{passwd}");
-                client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Basic", Convert.ToBase64String(authToken));
-                using(var resp = client.GetAsync(ESTB_URL_AUTH_THOKEN))   // using(var resp = client.PostAsync(url, data))   
-                {
-                    Console.WriteLine("Get ESTB responce status: " + resp.Status);
-                    // ???? if (resp.Status != TaskStatus.WaitingForActivation) throw new Exception("Authenticated was failing. Get " + resp.Status.ToString());
+            Task.Delay(3).ContinueWith(t => Console.WriteLine("[ESTB]: .. waiting for ESTB-back responce ... "));
+            Console.WriteLine("[ESTB]: Responce = " + app.ApiGetESTBAuthToken(app).Result);
 
-                    /* 
-                    
-                    PROCCESING 
-                    
-                    Return data via {"id": "srv_tzp_1_msg_15", "type":"update_cars", "result":"success"}
-                    
-                     */
-                }
-
-            }
-  
-            bool answerFromESTB = true;
+            Console.WriteLine("CASE SUCCESS 1: Returned data = "+Environment.NewLine+"{" + string.Join(",", ESTB_SuccessResponce_Case1_update_cars.Select(kv => kv.Key + "=" + kv.Value).ToArray()) + "}");
 
 
-            /// CASE SUCCESS 1:
+            /// TODO: CASE FAIL 1:
 
-
-            /// CASE FAIL 1:
-
-
-            //var response = await client.PostAsync(url, data);
-            //var result = await response.Content.ReadAsStringAsync();
-            //Console.WriteLine(result);
-
-            /* MyEntity myEntity;
-             HttpResponseMessage response;
-
-             using (var httpClient = new HttpClient())
-             {
-                 httpClient.BaseAddress = new Uri("https://yourApiAdress.com");
-                 //Yours string value.
-                 var content = new FormUrlEncodedContent(new[]
-                 {
-                     new KeyValuePair<string, string>("MyStringContent", "someString")
-                 });
-                 //Sending http post request.
-
-                 response = await httpClient.PostAsync($"/api/public/poll/", content);
-
-             }
- */
-
-            /// ... wait for few seconds as example await for DB answers ...
-            // TODO: To return answer to ESTB-back via `sendInfoToAZC()` data 
-
-
-            /// Method 1: sendInfoToAZC() => Return data via {"id": "srv_tzp_1_msg_15", "type":"update_cars", "result":"success"}
-
-
-        }
-
-        private static void OnTimedEvent(Object source, System.Timers.ElapsedEventArgs e)
-        {
-            Console.WriteLine("The Elapsed event was raised at {0}", e.SignalTime);
         }
 
     }
